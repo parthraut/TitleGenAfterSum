@@ -1,8 +1,13 @@
 from datasets import load_dataset, Dataset, concatenate_datasets
 from transformers import DataCollatorForSeq2Seq
 import pandas as pd
+import torch
 from torch.utils.data import DataLoader, random_split
 
+# setting the seed for random_split
+torch.manual_seed(42)
+
+# setting the number of processors for mapping
 num_proc = 70
 
 def load_hf_data(tokenizer, dataset_name, x_key="article", y_key="highlights", return_dl=False, batch_size=32):
@@ -52,8 +57,68 @@ def split_dataset(dataset, splits):
     train_set, val_set, test_set = random_split(shuffled_dataset, [train_size, val_size, test_size])
     return train_set, val_set, test_set
 
-def load_csv_data(tokenizer, csv_fp, x_key="article", y_key="title", chunk_size=1e3, nrows=None, splits=(0.7, 0.2, 0.1), return_dl=False, batch_size=32):
+# def load_csv_data(tokenizer, csv_fp, x_key="article", y_key="title", chunk_size=1e3, nrows=None, filters=None, splits=(0.7, 0.2, 0.1), return_dl=False, batch_size=32):
 
+#     # define tokenize function
+#     def tokenize(example):
+#         tokenized_x = tokenizer(example[x_key], truncation=True)
+#         tokenized_y = tokenizer(example[y_key], truncation=True)
+
+#         return {
+#             "input_ids": tokenized_x["input_ids"],
+#             "labels": tokenized_y["input_ids"],
+#         }
+
+#     tokenized_datasets = []
+
+#     # read chunks of the csv to avoid loading it all at once
+#     i = 0
+#     if nrows == None:
+#         total = int((2.7*10**6)//chunk_size)
+#     else:
+#         total = int(nrows//chunk_size)
+
+#     for chunk in pd.read_csv(csv_fp, chunksize=chunk_size, nrows=nrows):
+#         print(f"Chunk {i + 1} / {total}")
+
+#         # filter chunks based on provided values
+#         if not filters == None:
+#             for col, val in filters:
+#                 chunk = chunk[chunk[col] == val]
+        
+#         # keep only x and y columns & delete bad rows
+#         chunk = chunk[[x_key, y_key]]
+#         chunk = chunk.dropna()
+
+#         hf_dataset = Dataset.from_pandas(chunk)
+#         tokenized_chunk = hf_dataset.map(
+#             tokenize,
+#             batched=True,
+#             num_proc=num_proc,
+#             # remove_columns=[x_key, y_key, "__index_level_0__"]
+#             remove_columns=[x_key, y_key]
+#         )
+
+#         tokenized_datasets.append(tokenized_chunk)
+#         i += 1
+
+#     # concatenate tokenized dataset chunks
+#     tokenized_dataset = concatenate_datasets(tokenized_datasets)
+#     train_ds, val_ds, test_ds = split_dataset(tokenized_dataset, splits)
+
+#     if not return_dl:
+#         return train_ds, val_ds, test_ds
+    
+#     else:
+#         data_collator = DataCollatorForSeq2Seq(tokenizer, padding=True)
+#         train_dl = DataLoader(train_ds, shuffle=True, batch_size=batch_size, collate_fn=data_collator)
+#         val_dl = DataLoader(val_ds, shuffle=False, batch_size=batch_size, collate_fn=data_collator)
+#         test_dl = DataLoader(test_ds, shuffle=False, batch_size=batch_size, collate_fn=data_collator)
+
+#         return train_dl, val_dl, test_dl
+
+def load_csv_data(tokenizer, csv_fps, x_key="article", y_key="title", chunk_size=1e3, nrows=None, filters=None, return_dl=False, batch_size=32):
+    
     # define tokenize function
     def tokenize(example):
         tokenized_x = tokenizer(example[x_key], truncation=True)
@@ -64,35 +129,21 @@ def load_csv_data(tokenizer, csv_fp, x_key="article", y_key="title", chunk_size=
             "labels": tokenized_y["input_ids"],
         }
 
-    tokenized_datasets = []
+    dataset_splits = []
+    for csv_fp in csv_fps:
+        print("-----------")
+        print(f"Loading {csv_fp}")
 
-    # read chunks of the csv to avoid loading it all at once
-    if nrows == None:
-        i = 0
-        total = int(2.7*10**6//chunk_size)
+        tokenized_datasets = []
 
-        for chunk in pd.read_csv(csv_fp, chunksize=chunk_size):
-            print(f"Chunk {i + 1} / {total}")
-            chunk = chunk[[x_key, y_key]]
-            chunk = chunk.dropna()
-
-            hf_dataset = Dataset.from_pandas(chunk)
-            tokenized_chunk = hf_dataset.map(
-                tokenize,
-                batched=True,
-                num_proc=num_proc,
-                remove_columns=[x_key, y_key, "__index_level_0__"]
-            )
-            
-            tokenized_datasets.append(tokenized_chunk)
-            i += 1
-
-    else:
-        i = 0
-        total = int(nrows//chunk_size)
-
+        # read chunks of the csv to avoid loading it all at once
         for chunk in pd.read_csv(csv_fp, chunksize=chunk_size, nrows=nrows):
-            print(f"Chunk {i + 1} / {total}")
+            # filter chunks based on provided values
+            if not filters == None:
+                for col, val in filters:
+                    chunk = chunk[chunk[col] == val]
+            
+            # keep only x and y columns & delete bad rows
             chunk = chunk[[x_key, y_key]]
             chunk = chunk.dropna()
 
@@ -101,15 +152,17 @@ def load_csv_data(tokenizer, csv_fp, x_key="article", y_key="title", chunk_size=
                 tokenize,
                 batched=True,
                 num_proc=num_proc,
-                remove_columns=[x_key, y_key, "__index_level_0__"]
+                # remove_columns=[x_key, y_key, "__index_level_0__"]
+                remove_columns=[x_key, y_key]
             )
 
             tokenized_datasets.append(tokenized_chunk)
-            i += 1
 
-    # concatenate tokenized dataset chunks
-    tokenized_dataset = concatenate_datasets(tokenized_datasets)
-    train_ds, val_ds, test_ds = split_dataset(tokenized_dataset, splits)
+        # concatenate tokenized dataset chunks
+        tokenized_dataset = concatenate_datasets(tokenized_datasets)
+        dataset_splits.append(tokenized_dataset)
+        
+    train_ds, val_ds, test_ds = tuple(dataset_splits)
 
     if not return_dl:
         return train_ds, val_ds, test_ds
@@ -121,4 +174,3 @@ def load_csv_data(tokenizer, csv_fp, x_key="article", y_key="title", chunk_size=
         test_dl = DataLoader(test_ds, shuffle=False, batch_size=batch_size, collate_fn=data_collator)
 
         return train_dl, val_dl, test_dl
-

@@ -1,6 +1,7 @@
 # My files
 myenv/
 venv/
+slurm*
 data/
 
 # Byte-compiled / optimized / DLL files
