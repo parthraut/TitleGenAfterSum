@@ -3,9 +3,9 @@
 #SBATCH --partition=spgpu
 #SBATCH --gpus=1
 #SBATCH --cpus-per-gpu=4
-#SBATCH --mem-per-gpu=32GB
+#SBATCH --mem-per-gpu=64GB
 #SBATCH --account=eecs595f23_class
-#SBATCH --time=00-06:00:00 
+#SBATCH --time=00-08:00:00 
 
 # set up job
 module load python cuda
@@ -22,7 +22,7 @@ pip install scikit-learn
 pip install peft
 
 # run job
-python src/train.py
+python src/finetuning/train_bart.py
 # python src/save_freq_figures.py
 # python src/experiment.py
 # python src/preprocess_csv.py
