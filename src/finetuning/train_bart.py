@@ -7,9 +7,11 @@ import os
 from torch.nn.parallel import DataParallel
 import pandas as pd
 import multiprocessing
-from multiprocessing import Pool
+# from multiprocessing import Pool
 from tqdm import tqdm
 import torch.multiprocessing as mp
+from transformers import pipeline
+from torch.multiprocessing import Pool, Process, set_start_method
 
 # setting the device
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -187,21 +189,9 @@ def summarize(args):
 
     return output_text
 
-# def summarize2(model, tokenizer, max_input_tokens, values):
-#     output_texts = list()
-#     for value in values:
-#         input_ids = tokenizer(value, return_tensors="pt").input_ids
-#         input_ids = input_ids[:, :max_input_tokens]
-#         # input_ids = input_ids.to(device)
-
-#         # Generate output
-#         output_ids = model.generate(input_ids, max_length=max_input_tokens)
-
-#         # Decode the output
-#         output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-#         output_texts.append(output_text)
-
-#     return output_texts
+def summarize2(args):
+    reader, value = args
+    return reader(value)
 
 def summarize_csv(dataset_fp):
     print("-----------------------")
@@ -217,27 +207,44 @@ def summarize_csv(dataset_fp):
 
     print("-----------------------")
     print("Reading CSV")
-    df = pd.read_csv(dataset_fp, nrows=None)
+    df = pd.read_csv(dataset_fp, nrows=100)
     df = df.dropna()
+
+    set_start_method("spawn", force=True)
+    reader = pipeline("summarization", model=model_path, device=device)
+
+    # print("-----------------------")
+    # print("Generating summarization inputs")
+    # inputs = list()
+    # for article in tqdm(df["article"], total=len(df["article"])):
+    #     inputs.append((model_path, article))
 
     print("-----------------------")
     print("Generating summarization inputs")
     inputs = list()
     for article in tqdm(df["article"], total=len(df["article"])):
-        inputs.append((model_path, article))
+        inputs.append((reader, article))
 
-    print("-----------------------")
-    print("Summarizing")
-    summaries = list()
-    for input in tqdm(inputs):
-        summary = summarize(input)
-        summaries.append(summary)
+    multi_pool = Pool(processes=num_processors)
+    predictions = multi_pool.map(summarize2, inputs)
+    multi_pool.close()
+    multi_pool.join()
+    print(predictions)
 
-    print("-----------------------")
-    print("Changing dataframe with summaries")
-    df["article"] = summaries
+    # print("-----------------------")
+    # print("Summarizing")
+    # summaries = list()
+    # for input in tqdm(inputs):
+    #     summary = summarize(input)
+    #     summaries.append(summary)
 
-    return df
+    # print("-----------------------")
+    # print("Changing dataframe with summaries")
+    # df["article"] = summaries
+
+    # return df
+
+    return None
 
 def summarize_all():
     # print("-----------------------")
