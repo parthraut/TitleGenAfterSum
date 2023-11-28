@@ -1,5 +1,5 @@
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments, DataCollatorForSeq2Seq, BartForConditionalGeneration, BartTokenizer
-from dataset_preparation import load_hf_data, load_csv_data
+from dataset_preparation_bart import load_hf_data, load_csv_data
 import torch
 from metrics import compute_metrics
 from peft import LoraConfig, TaskType, get_peft_model
@@ -57,7 +57,10 @@ def train_bart(model_name, batch_size, output_dir, lr, weight_decay, num_epochs,
 
     training_size = len(train_ds)
     total_steps = (training_size * num_epochs) / batch_size
-    save_eval_steps = total_steps // 10
+    save_eval_steps = total_steps // 50
+
+    print("-----------------------")
+    print(f"Total steps: {total_steps}, save_eval steps: {save_eval_steps}")
 
     # Set up Seq2SeqTrainingArguments
     training_args = Seq2SeqTrainingArguments(
@@ -70,20 +73,21 @@ def train_bart(model_name, batch_size, output_dir, lr, weight_decay, num_epochs,
         learning_rate=lr,
         per_device_train_batch_size=batch_size//device_count,
         per_device_eval_batch_size=batch_size//device_count,
+        gradient_accumulation_steps=4,
         weight_decay=weight_decay,
         num_train_epochs=num_epochs,
-        predict_with_generate=True,
+        # predict_with_generate=True,
         fp16=True,
         load_best_model_at_end=True
     )
 
     data_collator = DataCollatorForSeq2Seq(tokenizer, padding=True)
-    compute_metrics_lambda = lambda x: compute_metrics(tokenizer, x)
+    # compute_metrics_lambda = lambda x: compute_metrics(tokenizer, x)
 
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
-        compute_metrics=compute_metrics_lambda,
+        # compute_metrics=compute_metrics_lambda,
         train_dataset=train_ds,
         eval_dataset=val_ds,
         tokenizer=tokenizer,
@@ -168,30 +172,25 @@ def train_bart_doc2title_plus(batch_size, save_name, lr_tg, weight_decay, num_ep
     print("-----------------------")
     print("Calling train_bart")
     train_bart(model_path, batch_size, f"results/bart/doc2title_plus/{save_name}", lr_tg, weight_decay, num_epochs, train_ds, val_ds, param_efficient=param_efficient)\
-    
-def summarize(args):
-    model_path, value = args
 
-    model = BartForConditionalGeneration.from_pretrained(model_path)
-    model = model.to(device)
-    max_input_tokens = model.config.max_position_embeddings
-    tokenizer = BartTokenizer.from_pretrained(model_path)
+# def summarize(args):
+#     model, max_input_tokens, tokenizer, article = args
 
-    input_ids = tokenizer(value, return_tensors="pt").input_ids
-    input_ids = input_ids[:, :max_input_tokens]
-    input_ids = input_ids.to(device)
+#     input_ids = tokenizer(article, return_tensors="pt").input_ids
+#     input_ids = input_ids[:, :max_input_tokens]
+#     input_ids = input_ids.to(device)
 
-    # Generate output
-    output_ids = model.generate(input_ids, max_length=max_input_tokens)
+#     # Generate output
+#     output_ids = model.generate(input_ids, max_length=200)
 
-    # Decode the output
-    output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+#     # Decode the output
+#     output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
-    return output_text
+#     return output_text
 
-def summarize2(args):
-    reader, value = args
-    return reader(value)
+# def summarize2(args):
+#     reader, value = args
+#     return reader(value)
 
 def summarize_csv(dataset_fp):
     print("-----------------------")
@@ -205,57 +204,45 @@ def summarize_csv(dataset_fp):
     subdirectories = [item for item in items if os.path.isdir(os.path.join(directory_path, item))]
     model_path = os.path.join(directory_path, subdirectories[-1])
 
+    model = BartForConditionalGeneration.from_pretrained(model_path)
+    model = model.to(device)
+    tokenizer = BartTokenizer.from_pretrained(model_path)
+    max_input_length = tokenizer.model_max_length
+
     print("-----------------------")
     print("Reading CSV")
-    df = pd.read_csv(dataset_fp, nrows=100)
+    df = pd.read_csv(dataset_fp, nrows=None)
     df = df.dropna()
-
-    set_start_method("spawn", force=True)
-    reader = pipeline("summarization", model=model_path, device=device)
-
-    # print("-----------------------")
-    # print("Generating summarization inputs")
-    # inputs = list()
-    # for article in tqdm(df["article"], total=len(df["article"])):
-    #     inputs.append((model_path, article))
+    documents = df["article"].tolist()
 
     print("-----------------------")
-    print("Generating summarization inputs")
-    inputs = list()
-    for article in tqdm(df["article"], total=len(df["article"])):
-        inputs.append((reader, article))
+    print("Summarizing")
+    batch_size = 128
+    all_summaries = []
+    for i in tqdm(range(0, len(documents), batch_size)):
+        batch = documents[i:i + batch_size]
+        inputs = tokenizer(batch, return_tensors="pt", max_length=max_input_length, truncation=True, padding=True)
+        inputs = inputs.to(device)
+        summaries = model.generate(**inputs, max_length=150, num_beams=1, early_stopping=False)
+        batch_summaries = [tokenizer.decode(summary, skip_special_tokens=True) for summary in summaries]
+        all_summaries.extend(batch_summaries)
 
-    multi_pool = Pool(processes=num_processors)
-    predictions = multi_pool.map(summarize2, inputs)
-    multi_pool.close()
-    multi_pool.join()
-    print(predictions)
+    print("-----------------------")
+    print("Changing dataframe with summaries")
+    df["article"] = all_summaries
 
-    # print("-----------------------")
-    # print("Summarizing")
-    # summaries = list()
-    # for input in tqdm(inputs):
-    #     summary = summarize(input)
-    #     summaries.append(summary)
-
-    # print("-----------------------")
-    # print("Changing dataframe with summaries")
-    # df["article"] = summaries
-
-    # return df
-
-    return None
+    return df
 
 def summarize_all():
-    # print("-----------------------")
-    # print("Summarizing train")
-    # train_summ_df = summarize_csv("data/atn-filtered-publication-section-train.csv")
-    # train_summ_df.to_csv("data/atn-filtered-publication-section-train-bart-summ.csv", index=False)
+    print("-----------------------")
+    print("Summarizing train")
+    train_summ_df = summarize_csv("data/atn-filtered-publication-section-train.csv")
+    train_summ_df.to_csv("data/atn-filtered-publication-section-train-bart-summ.csv", index=False)
 
-    # print("-----------------------")
-    # print("Summarizing val")
-    # val_summ_df = summarize_csv("data/atn-filtered-publication-section-val.csv")
-    # val_summ_df.to_csv("data/atn-filtered-publication-section-val-bart-summ.csv", index=False)
+    print("-----------------------")
+    print("Summarizing val")
+    val_summ_df = summarize_csv("data/atn-filtered-publication-section-val.csv")
+    val_summ_df.to_csv("data/atn-filtered-publication-section-val-bart-summ.csv", index=False)
 
     print("-----------------------")
     print("Summarizing test")
@@ -279,7 +266,7 @@ def train_bart_summ2title(batch_size, save_name, lr_tg, weight_decay, num_epochs
     print("Loading title generation datasets")
     train_ds, val_ds, _ = load_csv_data(
         tokenizer, 
-        ("./data/atn-filtered-publication-section-train-summ.csv", "./data/atn-filtered-publication-section-val-summ.csv", "./data/atn-filtered-publication-section-test-summ.csv"),
+        ("./data/atn-filtered-publication-section-train-bart-summ.csv", "./data/atn-filtered-publication-section-val-bart-summ.csv", "./data/atn-filtered-publication-section-test-bart-summ.csv"),
         chunk_size=chunk_size, 
         nrows=nrows, 
         filters=filters, 
@@ -291,24 +278,48 @@ def train_bart_summ2title(batch_size, save_name, lr_tg, weight_decay, num_epochs
     print("Calling train_bart")
     train_bart(model_path, batch_size, f"results/bart/doc2title_plus/{save_name}", lr_tg, weight_decay, num_epochs, train_ds, val_ds, param_efficient=param_efficient)
 
+# train_bart_doc2title(
+#     4, 
+#     "all", 
+#     8e-4, 
+#     1e-1, 
+#     5, 
+#     chunk_size=1e4, 
+#     nrows=None, 
+#     filters=None, 
+#     param_efficient=True
+# )
+
 # train_bart_doc2summ(
 #     batch_size=16, 
 #     lr_summ=8e-4, 
 #     weight_decay=1e-1, 
-#     num_epochs=2, 
+#     num_epochs=5, 
 #     param_efficient=True
 # )
 
 # train_bart_doc2title_plus(
-#     batch_size=16, 
-#     save_name="tmz", 
+#     batch_size=4, 
+#     save_name="all", 
 #     lr_tg=8e-5, 
 #     weight_decay=1e-1, 
 #     num_epochs=2, 
 #     chunk_size=1e4, 
 #     nrows=None, 
-#     filters=[("publication", "TMZ")],
+#     filters=None,
 #     param_efficient=True
 # )
 
-summarize_all()
+# summarize_all()
+
+train_bart_summ2title(
+    batch_size=4, 
+    save_name="all", 
+    lr_tg=8e-5, 
+    weight_decay=1e-1, 
+    num_epochs=2, 
+    chunk_size=1e4, 
+    nrows=None, 
+    filters=None, 
+    param_efficient=True
+)
