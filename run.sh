@@ -22,8 +22,5 @@ pip install scikit-learn
 pip install peft
 
 # run job
-python src/finetuning/train_t5.py
-# python src/finetuning/train_gpt.py
-# python src/save_freq_figures.py
-# python src/experiment.py
-# python src/preprocess_csv.py
+python src/evaluation/human_eval_creation.py
+# python src/evaluation/evaluate_subset2.py

@@ -1,6 +1,7 @@
 # My files
 myenv/
 venv/
+results/
 # slurm*
 data/
 

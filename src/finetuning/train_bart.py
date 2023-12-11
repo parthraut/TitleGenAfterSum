@@ -20,7 +20,7 @@ device_count = torch.cuda.device_count()
 # setting the number of processors
 num_processors = 70
 
-def train_bart(model_name, batch_size, output_dir, lr, weight_decay, num_epochs, train_ds, val_ds, param_efficient=False):
+def train_bart(model_name, batch_size, output_dir, lr, weight_decay, num_epochs, train_ds, val_ds, save_eval_steps=8962, param_efficient=False):
     print("-----------------------")
     print("Setting model and tokenizer")
 
@@ -55,12 +55,17 @@ def train_bart(model_name, batch_size, output_dir, lr, weight_decay, num_epochs,
     print("-----------------------")
     print("Setting training arguments")
 
-    training_size = len(train_ds)
-    total_steps = (training_size * num_epochs) / batch_size
-    save_eval_steps = total_steps // 50
+    # modified_batch_size = batch_size // 4
+    # training_size = len(train_ds)
+    # total_steps = int((training_size / modified_batch_size) * num_epochs)
+    # save_eval_steps = total_steps // 10
 
-    print("-----------------------")
-    print(f"Total steps: {total_steps}, save_eval steps: {save_eval_steps}")
+    # training_size = len(train_ds)
+    # total_steps = (training_size * num_epochs) / batch_size
+    # save_eval_steps = total_steps // 50
+
+    # print(f"Total steps: {total_steps}")
+    print(f"save_eval_steps: {save_eval_steps}")
 
     # Set up Seq2SeqTrainingArguments
     training_args = Seq2SeqTrainingArguments(
@@ -71,8 +76,8 @@ def train_bart(model_name, batch_size, output_dir, lr, weight_decay, num_epochs,
         logging_steps=save_eval_steps,
         save_total_limit=1,
         learning_rate=lr,
-        per_device_train_batch_size=batch_size//device_count,
-        per_device_eval_batch_size=batch_size//device_count,
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
         gradient_accumulation_steps=4,
         weight_decay=weight_decay,
         num_train_epochs=num_epochs,
@@ -276,27 +281,8 @@ def train_bart_summ2title(batch_size, save_name, lr_tg, weight_decay, num_epochs
 
     print("-----------------------")
     print("Calling train_bart")
-    train_bart(model_path, batch_size, f"results/bart/doc2title_plus/{save_name}", lr_tg, weight_decay, num_epochs, train_ds, val_ds, param_efficient=param_efficient)
+    train_bart(model_path, batch_size, f"results/bart/summ2title/{save_name}", lr_tg, weight_decay, num_epochs, train_ds, val_ds, param_efficient=param_efficient)
 
-# train_bart_doc2title(
-#     4, 
-#     "all", 
-#     8e-4, 
-#     1e-1, 
-#     5, 
-#     chunk_size=1e4, 
-#     nrows=None, 
-#     filters=None, 
-#     param_efficient=True
-# )
-
-# train_bart_doc2summ(
-#     batch_size=16, 
-#     lr_summ=8e-4, 
-#     weight_decay=1e-1, 
-#     num_epochs=5, 
-#     param_efficient=True
-# )
 
 # train_bart_doc2title_plus(
 #     batch_size=4, 
@@ -309,17 +295,3 @@ def train_bart_summ2title(batch_size, save_name, lr_tg, weight_decay, num_epochs
 #     filters=None,
 #     param_efficient=True
 # )
-
-# summarize_all()
-
-train_bart_summ2title(
-    batch_size=4, 
-    save_name="all", 
-    lr_tg=8e-5, 
-    weight_decay=1e-1, 
-    num_epochs=2, 
-    chunk_size=1e4, 
-    nrows=None, 
-    filters=None, 
-    param_efficient=True
-)

@@ -1,4 +1,4 @@
-from transformers import AutoTokenizer, Seq2SeqTrainer, Seq2SeqTrainingArguments, DataCollatorForSeq2Seq
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, Seq2SeqTrainer, Seq2SeqTrainingArguments, DataCollatorForSeq2Seq
 from dataset_preparation_bart import load_hf_data, load_csv_data
 import torch
 from metrics import compute_metrics
@@ -14,6 +14,7 @@ from transformers import pipeline
 from torch.multiprocessing import Pool, Process, set_start_method
 
 # setting the device
+torch.cuda.empty_cache()
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 device_count = torch.cuda.device_count()
 
@@ -38,12 +39,13 @@ def train_t5(model_name, batch_size, output_dir, lr, weight_decay, num_epochs, t
             r=16, 
             lora_alpha=64, 
             lora_dropout=0.1,
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj"
-            ]
+            # target_modules=[
+            #     "q_proj",
+            #     "k_proj",
+            #     "v_proj",
+            #     "o_proj"
+            # ]
+            target_modules=["q", "v"]
         )
 
         print("-----------------------")
@@ -116,12 +118,13 @@ def train_t5_doc2title(batch_size, save_name, lr, weight_decay, num_epochs, chun
         nrows=nrows, 
         filters=filters, 
         return_dl=False,
-        batch_size=batch_size
+        batch_size=batch_size,
+        max_token_size=1024
     )
 
     print("-----------------------")
     print("Calling train_t5")
-    train_t5("google/long-t5-local-base", batch_size, f"results/longt5/doc2title/{save_name}", lr, weight_decay, num_epochs, train_ds, val_ds, param_efficient=param_efficient)
+    train_t5("t5-base", batch_size, f"results/longt5/doc2title/{save_name}", lr, weight_decay, num_epochs, train_ds, val_ds, param_efficient=param_efficient)
 
 def train_t5_doc2summ(batch_size, lr_summ, weight_decay, num_epochs, param_efficient=False):
     print("-----------------------")
@@ -279,17 +282,17 @@ def train_t5_summ2title(batch_size, save_name, lr_tg, weight_decay, num_epochs, 
     print("Calling train_t5")
     train_t5(model_path, batch_size, f"results/longt5/doc2title_plus/{save_name}", lr_tg, weight_decay, num_epochs, train_ds, val_ds, param_efficient=param_efficient)
 
-train_t5_doc2title(
-    4, 
-    "all", 
-    8e-4, 
-    1e-1, 
-    5, 
-    chunk_size=1e4, 
-    nrows=None, 
-    filters=None, 
-    param_efficient=True
-)
+# train_t5_doc2title(
+#     4, 
+#     "all", 
+#     8e-4, 
+#     1e-1, 
+#     5, 
+#     chunk_size=1e2, 
+#     nrows=1e2, 
+#     filters=None, 
+#     param_efficient=True
+# )
 
 # train_t5_doc2summ(
 #     batch_size=16, 
