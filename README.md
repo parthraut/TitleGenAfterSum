@@ -13,4 +13,4 @@ Does summarization improve title generation? Our project delves into this questi
 
 This repository is your guide to understanding our project and the intersection of summarization tasks and effective title generation models.
 
-Because of the large size of our GPT-2 models and their poor performance on title generation, we decided not to include these models in this repository. However, they can me made available upon request. 
+**Note:** Because of the large size of our GPT-2 models and their poor performance on title generation, we decided not to include these models in this repository. However, they can me made available upon request. 
